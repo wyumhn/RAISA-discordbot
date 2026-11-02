@@ -5,7 +5,9 @@ const config = require('./config');
 const { toJstParts, fromJstParts, formatJst } = require('./utils/datetime');
 
 // ========================================
-// 毎週決まった日時（日本時間）にジョブを実行する
+// 毎週・毎日決まった日時（日本時間）にジョブを実行する
+//
+// ・schedule に weekday があれば毎週その曜日、なければ毎日
 //
 // ・追加パッケージなしで setTimeout だけで動かす
 // ・前回の実行日時をファイルに保存し、Bot が止まっていて
@@ -47,12 +49,19 @@ function saveLastRun(jobName, date) {
 // 日時の計算（日本時間）
 // ------------------------------------
 
+// 実行の間隔（weekday がなければ毎日）
+function periodOf(schedule) {
+    return schedule.weekday == null ? DAY_MS : WEEK_MS;
+}
+
 // now より後で、最も近い予定日時
-function nextOccurrence({ weekday, hour, minute }, now = new Date()) {
+function nextOccurrence(schedule, now = new Date()) {
+
+    const { weekday, hour, minute } = schedule;
 
     const today = toJstParts(now);
 
-    const daysAhead = (weekday - today.weekday + 7) % 7;
+    const daysAhead = weekday == null ? 0 : (weekday - today.weekday + 7) % 7;
 
     let candidate = new Date(
         fromJstParts(today.year, today.month, today.day, hour, minute).getTime() +
@@ -60,7 +69,7 @@ function nextOccurrence({ weekday, hour, minute }, now = new Date()) {
     );
 
     if (candidate <= now) {
-        candidate = new Date(candidate.getTime() + WEEK_MS);
+        candidate = new Date(candidate.getTime() + periodOf(schedule));
     }
 
     return candidate;
@@ -68,7 +77,7 @@ function nextOccurrence({ weekday, hour, minute }, now = new Date()) {
 
 // now 以前で、最も近い予定日時
 function previousOccurrence(schedule, now = new Date()) {
-    return new Date(nextOccurrence(schedule, now).getTime() - WEEK_MS);
+    return new Date(nextOccurrence(schedule, now).getTime() - periodOf(schedule));
 }
 
 
@@ -114,7 +123,7 @@ async function runJob(job, client, attempt = 0) {
 }
 
 
-// 1週間先を setTimeout 1回で待つと、PC のスリープや時計の補正でずれることがあるため、
+// 1日・1週間先を setTimeout 1回で待つと、PC のスリープや時計の補正でずれることがあるため、
 // 1分ごとに「予定時刻を過ぎたか」を確認する
 const CHECK_INTERVAL_MS = 60 * 1000;
 

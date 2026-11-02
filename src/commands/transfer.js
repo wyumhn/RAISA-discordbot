@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 
 const { parseJapaneseDateTime, formatJst } = require('../utils/datetime');
 const { extractChannelId } = require('../utils/channelInput');
@@ -40,7 +40,10 @@ module.exports = {
                 .setName('target_channel')
                 .setDescription('転送先の ID またはリンク（省略時はこのチャンネル）')
                 .setRequired(false)
-        ),
+        )
+        // 初期状態ではサーバー管理権限を持つ人だけ。
+        // サーバー設定 > 連携サービス から、使えるロールを変更できる
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
     async execute(interaction) {
 

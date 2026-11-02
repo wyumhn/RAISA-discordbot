@@ -81,7 +81,7 @@ function loadEvents(client) {
 // 各ファイルは次の形で export する:
 //   module.exports = {
 //       name: 'ジョブ名',
-//       schedule: { weekday: 1, hour: 6, minute: 0 },  // 日本時間
+//       schedule: { weekday: 1, hour: 6, minute: 0 },  // 日本時間（weekday 省略で毎日）
 //       async run(client) { ... },  // 失敗時は throw
 //   };
 // ========================================

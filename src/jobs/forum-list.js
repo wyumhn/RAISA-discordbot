@@ -4,7 +4,7 @@ const { updateForumMessages } = require('../features/forum-list');
 // ========================================
 // フォーラム・スレッド一覧の自動更新
 //
-// 実行日時は config.js の forumList.schedule で設定（初期値: 毎週月曜 6:00）。
+// 実行日時は config.js の forumList.schedule で設定（初期値: 毎日 6:00）。
 // ========================================
 
 module.exports = {
