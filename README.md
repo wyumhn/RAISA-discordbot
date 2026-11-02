@@ -100,3 +100,10 @@ bash /home/bot/discord-bot/deploy/update.sh
 
 どちらも初期状態では「サーバー管理」権限を持つ人だけが使えます。
 使えるロール・メンバーは、サーバー設定 > 連携サービス > この Bot から変更できます。
+
+### Docker での起動
+
+```sh
+docker build -t discord-bot .
+docker run -d --name discord-bot --restart unless-stopped --env-file .env -v discord-bot-data:/app/data discord-bot
+```
