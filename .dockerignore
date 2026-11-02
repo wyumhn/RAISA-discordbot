@@ -1,0 +1,17 @@
+# イメージに含めないもの
+node_modules/
+.env
+data/
+_old/
+_incoming/
+message_ids.json
+deploy/
+
+.git/
+.gitignore
+.gitattributes
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
