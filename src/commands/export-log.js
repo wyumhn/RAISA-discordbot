@@ -6,8 +6,7 @@ const { resolveChannelForMember } = require('../utils/permissions');
 const { createReporter } = require('../utils/reporter');
 const { tryAcquire, busyMessage } = require('../utils/busy');
 const config = require('../config');
-const { fetchMessagesInRange } = require('../features/transfer');
-const { buildLogFiles } = require('../features/export-log');
+const { exportLog } = require('../features/export-log');
 
 module.exports = {
 
@@ -48,6 +47,9 @@ module.exports = {
         const reporter = createReporter(interaction);
 
         let lock = null;
+
+        // 分割して送信済みのファイル数
+        let sentParts = 0;
 
         try {
 
@@ -113,52 +115,61 @@ module.exports = {
 
             await reporter.progress('メッセージを取得しています……', { force: true });
 
-            const messages = await fetchMessagesInRange(sourceChannel, startDate, endDate, {
+            // 古い順に取得しながら、8MB ごとのファイルにしてその場で送る
+            const result = await exportLog({
+                channel: sourceChannel,
+                startDate,
+                endDate,
                 onProgress: found => {
                     acquireIfHeavy(found);
                     // /busy-stop で中止されたら取得をやめる（catch で中止として返す）
                     lock?.signal?.throwIfAborted();
-                    return reporter.progress(`メッセージを取得しています……（${found} 件）`);
+                    return reporter.progress(`メッセージを取得・出力しています……（${found} 件）`);
+                },
+                sendPart: async (file, part) => {
+                    await reporter.send({
+                        content: `ログ ${part} 個目（${sourceChannel}）`,
+                        files: [file],
+                    });
+                    sentParts = part;
                 },
             });
 
-            lock?.signal?.throwIfAborted();
+            console.log(`ログ出力対象: ${result.count} 件 / ファイル ${result.parts} 個`);
 
-            console.log(`ログ出力対象: ${messages.length} 件`);
-
-            if (messages.length === 0) {
+            if (result.count === 0) {
                 await reporter.finish(
                     `${sourceChannel} には指定期間（${periodText}）のメッセージがありません。`
                 );
                 return;
             }
 
-            const files = buildLogFiles({
-                channel: sourceChannel,
-                messages,
-                startDate,
-                endDate,
-            });
-
             await reporter.finish({
                 content:
                     'ログを出力しました。\n' +
                     `チャンネル: ${sourceChannel}\n` +
                     `期間: ${periodText}\n` +
-                    `件数: ${messages.length} 件`,
-                files,
+                    `件数: ${result.count} 件\n` +
+                    `ファイル: ${result.parts} 個` +
+                    (result.lastFile ? '' : '（大きいため分割して送信しました）'),
+                files: result.lastFile ? [result.lastFile] : [],
             });
 
         } catch (error) {
 
+            // 分割して送信済みのファイルがあれば、そのことも伝える
+            const sentNote = sentParts > 0
+                ? `\n（ファイル ${sentParts} 個目までは送信済みです）`
+                : '';
+
             // 他の重い処理が実行中だったため、取得の途中で止めた
             if (error.isBusy) {
-                await reporter.finish(error.message);
+                await reporter.finish(error.message + sentNote);
                 return;
             }
 
             if (lock?.signal?.aborted) {
-                await reporter.finish(`ログ出力を中止しました（${lock.signal.reason.message}）。`);
+                await reporter.finish(`ログ出力を中止しました（${lock.signal.reason.message}）。${sentNote}`);
                 return;
             }
 
@@ -166,7 +177,8 @@ module.exports = {
 
             await reporter.finish(
                 'ログ出力中にエラーが発生しました。\n' +
-                `\`${error.message}\``
+                `\`${error.message}\`` +
+                sentNote
             );
 
         } finally {

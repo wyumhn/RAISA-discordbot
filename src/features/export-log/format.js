@@ -114,18 +114,20 @@ function formatMessage(message) {
 // ファイル先頭の情報
 // ========================================
 
-function formatHeader({ channel, startDate, endDate, messageCount, part, totalParts }) {
+// part: 分割したときの番号（分割していなければ null）
+// messageCount: このファイルに入っている件数
+function formatHeader({ channel, startDate, endDate, messageCount, part }) {
 
     const lines = [
         `チャンネル: #${channel.name} (${channel.id})`,
         `サーバー: ${channel.guild?.name ?? '-'}`,
         `期間: ${formatJst(startDate)} ～ ${formatJst(endDate)}（日本時間）`,
-        `件数: ${messageCount} 件`,
+        `件数: ${messageCount} 件${part ? '（このファイル内）' : ''}`,
         `出力日時: ${formatJstSeconds(new Date())}`,
     ];
 
-    if (totalParts > 1) {
-        lines.push(`ファイル: ${part} / ${totalParts}`);
+    if (part) {
+        lines.push(`ファイル: ${part} 個目（古い順）`);
     }
 
     lines.push('='.repeat(40), '');

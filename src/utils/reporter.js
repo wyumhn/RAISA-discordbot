@@ -1,3 +1,5 @@
+const { MessageFlags } = require('discord.js');
+
 // ========================================
 // 長い処理の進捗・結果を実行者に伝える
 //
@@ -58,6 +60,32 @@ function createReporter(interaction) {
             }
         }
 
+        await deliver(message);
+    }
+
+
+    // 途中経過として別のメッセージを送る（分割したファイルなど）
+    // 返信の時間内なら、実行者にだけ見える追加の返信（followUp）で送る
+    async function send(payload) {
+
+        const message = typeof payload === 'string' ? { content: payload } : payload;
+
+        if (canEditReply()) {
+            try {
+                await interaction.followUp({ ...message, flags: MessageFlags.Ephemeral });
+                return;
+            } catch (error) {
+                console.error('追加の返信に失敗しました:', error.message);
+            }
+        }
+
+        await deliver(message);
+    }
+
+
+    // 返信が使えないとき: DM → だめなら実行したチャンネルにメンション付きで送る
+    async function deliver(message) {
+
         const title = `/${interaction.commandName} の結果`;
 
         // DM
@@ -85,6 +113,7 @@ function createReporter(interaction) {
 
     return {
         progress,
+        send,
         finish,
     };
 }

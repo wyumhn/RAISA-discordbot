@@ -67,7 +67,54 @@ async function fetchMessagesInRange(channel, startDate, endDate, { onProgress } 
     return messages;
 }
 
+// ========================================
+// 期間内のメッセージを古い順に少しずつ取り出す（/export-log 用）
+//
+// fetchMessagesInRange は全件をメモリに溜めてから返すが、こちらは
+// 100件ずつ古い順に返すので、使い終わったメッセージから捨てられる。
+//
+//   for await (const batch of iterateMessagesInRange(...)) { ... }
+//
+// 「開始日時の直前」に相当するIDから、新しい方向（after）へ読み進める。
+// ========================================
+
+async function* iterateMessagesInRange(channel, startDate, endDate) {
+
+    const startTime = startDate.getTime();
+    const endTime = endDate.getTime();
+
+    // 開始日時ちょうどの投稿も含めるため -1
+    let after = (BigInt(snowflakeFromTimestamp(startTime)) - 1n).toString();
+
+    while (true) {
+
+        const batch = await channel.messages.fetch({ limit: 100, after, cache: false });
+
+        if (batch.size === 0) {
+            return;
+        }
+
+        const sorted = [...batch.values()].sort(
+            (a, b) => a.createdTimestamp - b.createdTimestamp
+        );
+
+        const inRange = sorted.filter(message => message.createdTimestamp <= endTime);
+
+        if (inRange.length > 0) {
+            yield inRange;
+        }
+
+        // 終了日時を過ぎた / これ以上ない
+        if (inRange.length < sorted.length || batch.size < 100) {
+            return;
+        }
+
+        after = sorted[sorted.length - 1].id;
+    }
+}
+
 module.exports = {
     fetchMessagesInRange,
+    iterateMessagesInRange,
     snowflakeFromTimestamp,
 };
