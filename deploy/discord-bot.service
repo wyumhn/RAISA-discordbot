@@ -1,0 +1,38 @@
+# systemd のサービス定義
+#
+# 1. User / WorkingDirectory / ExecStart のパスを自分の環境に合わせる
+#    （node の場所は `which node` で確認）
+# 2. sudo cp deploy/discord-bot.service /etc/systemd/system/
+# 3. sudo systemctl daemon-reload
+# 4. sudo systemctl enable --now discord-bot
+#
+# ログ:   journalctl -u discord-bot -f
+# 再起動: sudo systemctl restart discord-bot
+
+[Unit]
+Description=Discord Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+WorkingDirectory=/home/bot/discord-bot
+ExecStart=/usr/bin/node src/index.js
+Environment=NODE_ENV=production
+
+# 落ちたら 10 秒後に自動で再起動
+Restart=always
+RestartSec=10
+
+# 停止時は SIGTERM → Bot 側で Discord から切断してから終了
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# 最低限の保護
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
