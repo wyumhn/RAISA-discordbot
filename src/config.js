@@ -119,4 +119,23 @@ module.exports = {
         // （Bot が止まっていて実行できなかった分を、起動時に取り戻すため）
         stateFile: path.join(__dirname, '..', 'data', 'job-state.json'),
     },
+
+
+    // ------------------------------------
+    // 重い処理の同時実行の制限（src/utils/busy.js）
+    //
+    // /transfer・範囲の大きい /export-log・更新（deploy/update.sh）は
+    // 同時に1つだけ。実行中に別のものを始めようとすると止める。
+    // ------------------------------------
+    busy: {
+
+        // /export-log は取得したメッセージがこの件数を超えたときだけ制限の対象にする
+        exportLogHeavyMessages: 3000,
+
+        // 更新スクリプトのロックをこれより古ければ無効とみなす
+        updateMaxAgeMs: 30 * 60 * 1000,
+
+        // 実行中の処理を記録するファイル（更新スクリプトと共有）
+        lockFile: path.join(__dirname, '..', 'data', 'busy.lock'),
+    },
 };

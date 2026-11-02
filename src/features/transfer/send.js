@@ -60,45 +60,76 @@ async function sendReplyReference(webhookInfo, message) {
 
 
 // ========================================
-// 本文（添付ファイルがあれば一緒に送る）
+// 2000文字ごとのメッセージに分ける
+//
+// 行の区切りでまとめ、1行が長すぎるときだけ途中で切る。
 // ========================================
+
+const MAX_CONTENT_LENGTH = 2000;
+
+function splitContent(text) {
+
+    const chunks = [];
+    let current = '';
+
+    for (let line of text.split('\n')) {
+
+        while (line.length > MAX_CONTENT_LENGTH) {
+            if (current) {
+                chunks.push(current);
+                current = '';
+            }
+            chunks.push(line.slice(0, MAX_CONTENT_LENGTH));
+            line = line.slice(MAX_CONTENT_LENGTH);
+        }
+
+        const next = current ? `${current}\n${line}` : line;
+
+        if (next.length > MAX_CONTENT_LENGTH) {
+            chunks.push(current);
+            current = line;
+        } else {
+            current = next;
+        }
+    }
+
+    if (current) {
+        chunks.push(current);
+    }
+
+    return chunks;
+}
+
+
+// ========================================
+// 本文（添付ファイルはリンクにして一緒に送る）
+//
+// 添付ファイルをダウンロードしてアップロードし直すとメモリを多く使うため、
+// Discord 上の URL を貼る（Discord が画像・動画をプレビュー表示する）。
+// ※ 元のメッセージが削除されると、リンク先のファイルも見られなくなる。
+// ========================================
+
+function attachmentLink(attachment) {
+    // ネタバレ指定の添付は、リンクもネタバレ表示にする
+    return attachment.spoiler ? `||${attachment.url}||` : attachment.url;
+}
 
 async function sendBody(webhookInfo, message) {
 
     // メンションは `@名前` にして通知・ハイライトされないようにする
-    const content = escapeMentions(message.content, message) || undefined;
+    const content = escapeMentions(message.content, message);
+
+    const links = message.attachments.map(attachmentLink);
+
+    const text = [content, ...links].filter(Boolean).join('\n');
 
     // 本文も添付もない（スタンプのみ等）場合は送るものがない
-    if (!content && message.attachments.size === 0) {
+    if (!text) {
         return;
     }
 
-    if (message.attachments.size === 0) {
-        await sendAsUser(webhookInfo, message, { content });
-        return;
-    }
-
-    try {
-
-        await sendAsUser(webhookInfo, message, {
-            content,
-            files: message.attachments.map(attachment => ({
-                attachment: attachment.url,
-                name: attachment.name,
-            })),
-        });
-
-    } catch (error) {
-
-        // ファイルサイズ超過などで添付できなかった場合は、
-        // 本文 + 添付ファイルのURLで送る
-        console.error(`添付ファイルの転送に失敗: ${message.id}`, error);
-
-        const urls = message.attachments.map(attachment => attachment.url);
-
-        await sendAsUser(webhookInfo, message, {
-            content: [content, ...urls].filter(Boolean).join('\n'),
-        });
+    for (const chunk of splitContent(text)) {
+        await sendAsUser(webhookInfo, message, { content: chunk });
     }
 }
 
@@ -163,14 +194,19 @@ async function transferMessage(message, targetChannel, webhookInfo) {
 // メッセージをまとめて古い順に転送
 //
 // onProgress(処理済み件数, 全件数) を渡すと1件ごとに呼ばれる。
+// signal（AbortSignal）が中止されたら、次のメッセージの前で止める。
 // 戻り値: 成功件数
 // ========================================
 
-async function transferMessages(messages, targetChannel, webhookInfo, { onProgress } = {}) {
+async function transferMessages(messages, targetChannel, webhookInfo, { onProgress, signal } = {}) {
 
     let successCount = 0;
 
     for (const [index, message] of messages.entries()) {
+
+        if (signal?.aborted) {
+            break;
+        }
 
         try {
             await transferMessage(message, targetChannel, webhookInfo);

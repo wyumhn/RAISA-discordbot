@@ -4,6 +4,8 @@ const { parseJapaneseDateTime, formatJst } = require('../utils/datetime');
 const { extractChannelId } = require('../utils/channelInput');
 const { resolveChannelForMember } = require('../utils/permissions');
 const { createReporter } = require('../utils/reporter');
+const { tryAcquire, busyMessage } = require('../utils/busy');
+const config = require('../config');
 const { fetchMessagesInRange } = require('../features/transfer');
 const { buildLogFiles } = require('../features/export-log');
 
@@ -44,6 +46,8 @@ module.exports = {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const reporter = createReporter(interaction);
+
+        let lock = null;
 
         try {
 
@@ -88,12 +92,37 @@ module.exports = {
             // 取得・出力
             // ------------------------------------
 
+            // メッセージ数は取得してみるまで分からないため、取得中に件数が
+            // 上限を超えた時点で重い処理として扱い、同時に1つだけにする。
+            // （上限までは保持しているメッセージが少なく、メモリをあまり使わない）
+            const acquireIfHeavy = found => {
+
+                if (lock || found <= config.busy.exportLogHeavyMessages) {
+                    return;
+                }
+
+                lock = tryAcquire(
+                    '/export-log（大量）',
+                    interaction.member?.displayName ?? interaction.user.username
+                );
+
+                if (lock.busy) {
+                    throw Object.assign(new Error(busyMessage(lock.busy)), { isBusy: true });
+                }
+            };
+
             await reporter.progress('メッセージを取得しています……', { force: true });
 
             const messages = await fetchMessagesInRange(sourceChannel, startDate, endDate, {
-                onProgress: found =>
-                    reporter.progress(`メッセージを取得しています……（${found} 件）`),
+                onProgress: found => {
+                    acquireIfHeavy(found);
+                    // /busy-stop で中止されたら取得をやめる（catch で中止として返す）
+                    lock?.signal?.throwIfAborted();
+                    return reporter.progress(`メッセージを取得しています……（${found} 件）`);
+                },
             });
+
+            lock?.signal?.throwIfAborted();
 
             console.log(`ログ出力対象: ${messages.length} 件`);
 
@@ -122,12 +151,26 @@ module.exports = {
 
         } catch (error) {
 
+            // 他の重い処理が実行中だったため、取得の途中で止めた
+            if (error.isBusy) {
+                await reporter.finish(error.message);
+                return;
+            }
+
+            if (lock?.signal?.aborted) {
+                await reporter.finish(`ログ出力を中止しました（${lock.signal.reason.message}）。`);
+                return;
+            }
+
             console.error(error);
 
             await reporter.finish(
                 'ログ出力中にエラーが発生しました。\n' +
                 `\`${error.message}\``
             );
+
+        } finally {
+            lock?.release?.();
         }
     },
 };

@@ -4,6 +4,7 @@ const { parseJapaneseDateTime, formatJst } = require('../utils/datetime');
 const { extractChannelId } = require('../utils/channelInput');
 const { resolveChannelForMember } = require('../utils/permissions');
 const { createReporter } = require('../utils/reporter');
+const { tryAcquire, busyMessage } = require('../utils/busy');
 const {
     fetchMessagesInRange,
     getTransferWebhook,
@@ -56,6 +57,8 @@ module.exports = {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const reporter = createReporter(interaction);
+
+        let lock = null;
 
         try {
 
@@ -125,6 +128,17 @@ module.exports = {
             const sourceChannel = source.channel;
             const targetChannel = target.channel;
 
+            // 重い処理は同時に1つだけ（実行中のものがあれば始めない）
+            lock = tryAcquire(
+                '/transfer',
+                interaction.member?.displayName ?? interaction.user.username
+            );
+
+            if (lock.busy) {
+                await interaction.editReply(busyMessage(lock.busy));
+                return;
+            }
+
             // ------------------------------------
             // 転送
             // ------------------------------------
@@ -134,8 +148,11 @@ module.exports = {
             await reporter.progress('メッセージを取得しています……', { force: true });
 
             const messages = await fetchMessagesInRange(sourceChannel, startDate, endDate, {
-                onProgress: found =>
-                    reporter.progress(`メッセージを取得しています……（${found} 件）`),
+                onProgress: found => {
+                    // /busy-stop で中止されたら取得をやめる（catch で中止として返す）
+                    lock.signal.throwIfAborted();
+                    return reporter.progress(`メッセージを取得しています……（${found} 件）`);
+                },
             });
 
             console.log(`転送対象: ${messages.length} 件`);
@@ -143,10 +160,13 @@ module.exports = {
             const successCount = await transferMessages(messages, targetChannel, webhookInfo, {
                 onProgress: (done, total) =>
                     reporter.progress(`転送しています…… ${done} / ${total} 件`),
+                signal: lock.signal,
             });
 
             await reporter.finish(
-                '転送が完了しました。\n' +
+                (lock.signal.aborted
+                    ? `転送を途中で中止しました（${lock.signal.reason.message}）。\n`
+                    : '転送が完了しました。\n') +
                 `転送元: ${sourceChannel}\n` +
                 `転送先: ${targetChannel}\n` +
                 `対象: ${messages.length} 件\n` +
@@ -156,12 +176,21 @@ module.exports = {
 
         } catch (error) {
 
+            // メッセージの取得中に /busy-stop で中止された
+            if (lock?.signal?.aborted) {
+                await reporter.finish(`転送を開始前に中止しました（${lock.signal.reason.message}）。`);
+                return;
+            }
+
             console.error(error);
 
             await reporter.finish(
                 '転送中にエラーが発生しました。\n' +
                 `\`${error.message}\``
             );
+
+        } finally {
+            lock?.release?.();
         }
     },
 };
