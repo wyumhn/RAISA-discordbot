@@ -3,6 +3,9 @@ const { mapWithConcurrency } = require('../../utils/concurrency');
 
 const { maxMessages, apiConcurrency } = config.forumList;
 
+// スレッド名に @everyone などが含まれても通知しない
+const NO_MENTIONS = { parse: [] };
+
 
 // ========================================
 // チャンネル内の Bot 自身のメッセージを取得
@@ -77,10 +80,10 @@ async function editMessages(previousMessages, newMessages) {
 
     for (let i = 0; i < updateCount; i++) {
 
-        if (previousMessages[i].content === newMessages[i]) {
-            console.log(`${i + 1}/${newMessages.length} 個目：変更なし`);
-            continue;
-        }
+        //if (previousMessages[i].content === newMessages[i]) {
+        //    console.log(`${i + 1}/${newMessages.length} 個目：変更なし`);
+        //    continue;
+        //}
 
         targets.push({
             index: i,
@@ -92,7 +95,10 @@ async function editMessages(previousMessages, newMessages) {
     await mapWithConcurrency(targets, apiConcurrency, async target => {
 
         try {
-            await target.message.edit(target.content);
+            await target.message.edit({
+                content: target.content,
+                allowedMentions: NO_MENTIONS,
+            });
             console.log(`${target.index + 1}/${newMessages.length} 個目を編集しました`);
         } catch (error) {
             console.error(`${target.index + 1}個目の編集に失敗しました:`, error);
@@ -115,7 +121,10 @@ async function sendNewMessages(channel, messages, startIndex) {
     for (let i = startIndex; i < messages.length; i++) {
 
         try {
-            await channel.send(messages[i]);
+            await channel.send({
+                content: messages[i],
+                allowedMentions: NO_MENTIONS,
+            });
             console.log(`${i + 1}/${messages.length} 個目を新規作成しました`);
         } catch (error) {
             console.error(`${i + 1}個目の新規作成に失敗しました:`, error);

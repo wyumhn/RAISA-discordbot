@@ -21,15 +21,36 @@ function failure(reason) {
 }
 
 
+// 定期実行と /update-forums が同時に動くと、同じメッセージを
+// 両方が編集・削除して一覧が崩れるため、同時に1つだけにする
+let updating = false;
+
+
 // ========================================
 // フォーラム一覧を作り直し、一覧チャンネルの Bot メッセージに反映する
 //
 // 戻り値:
 //   { success: true,  forumCount, messageCount }
-//   { success: false, reason }
+//   { success: false, reason, alreadyRunning? }
 // ========================================
 
 async function updateForumMessages(client) {
+
+    if (updating) {
+        return { ...failure('フォーラム一覧はすでに更新中です。'), alreadyRunning: true };
+    }
+
+    updating = true;
+
+    try {
+        return await rebuildForumMessages(client);
+    } finally {
+        updating = false;
+    }
+}
+
+
+async function rebuildForumMessages(client) {
 
     const guild = await getGuild(client);
 

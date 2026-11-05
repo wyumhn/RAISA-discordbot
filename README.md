@@ -9,6 +9,7 @@
   - 8MB を超える場合は、古い順に 8MB ごとのファイルに分けて、できた分からすぐ送ります
     （全件をメモリに溜めないため、メモリ使用量は件数に関係なくほぼ一定）。最大 30 ファイル
 - フォーラム・スレッド一覧の自動更新（毎日 6:00）
+  - `/update-forums` … 今すぐ更新（運営用）
 
 ## 起動
 
@@ -31,6 +32,7 @@ src/
 ├─ commands/             スラッシュコマンド
 │   ├─ transfer.js        /transfer       指定期間のメッセージを転送（運営用）
 │   ├─ export-log.js      /export-log     指定期間のメッセージをテキストファイルに出力
+│   ├─ update-forums.js   /update-forums  フォーラム・スレッド一覧を今すぐ更新（運営用）
 │   ├─ busy-status.js     /busy-status    重い処理の実行状況を表示（運営用）
 │   └─ busy-stop.js       /busy-stop      実行中の重い処理を中止（運営用）
 │
@@ -98,7 +100,7 @@ bash /home/bot/discord-bot/deploy/update.sh
   - サーバーの更新（`update.sh`）は Bot からは止められません
   - `force: True` … 止まらないときに、ロックを強制的に解除します
 
-`/transfer` と、これらの運営用コマンドは、初期状態では「サーバー管理」権限を持つ人だけが使えます。
+`/transfer`・`/update-forums` と、これらの運営用コマンドは、初期状態では「サーバー管理」権限を持つ人だけが使えます。
 使えるロール・メンバーは、サーバー設定 > 連携サービス > この Bot から変更できます。
 
 ### Docker での起動

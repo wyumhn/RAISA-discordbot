@@ -1,4 +1,4 @@
-const { ChannelType, PermissionFlagsBits } = require('discord.js');
+const { ChannelType, PermissionFlagsBits, escapeMarkdown } = require('discord.js');
 
 const config = require('../../config');
 
@@ -60,7 +60,46 @@ function buildForumIndex(channels, guild, targetRole) {
 
 
 // ========================================
-// フォーラムごとのアクティブスレッドを取得
+// フォーラムのアーカイブ済みスレッドを全件取得
+//
+// 長期間アクティブでないスレッドは自動アーカイブされ、
+// アクティブスレッドの取得には含まれなくなるため別途取得する。
+// API は1回最大100件なので、アーカイブ時刻をさかのぼってページングする。
+// 一覧に使うだけなのでキャッシュには載せない。
+// ========================================
+
+async function fetchArchivedThreads(forum) {
+
+    const threads = [];
+    let before;
+
+    while (true) {
+
+        const result = await forum.threads.fetchArchived(
+            { type: 'public', before, limit: 100 },
+            false
+        );
+
+        threads.push(...result.threads.values());
+
+        const last = result.threads.last();
+
+        if (!result.hasMore || !last?.archivedAt) {
+            break;
+        }
+
+        before = last.archivedAt;
+    }
+
+    return threads;
+}
+
+
+// ========================================
+// フォーラムごとのスレッドを取得
+//
+// ・アクティブスレッド + アーカイブ済みスレッド
+// ・ロックされたスレッド（クローズ扱い）は除く
 //
 // discord.js の forum.threads.fetch() は、内部で
 // 「サーバー全体のアクティブスレッド」を取得してから絞り込んでいる。
@@ -83,10 +122,30 @@ async function fetchForumThreads(guild, forumIndex) {
         threadsByForum.get(thread.parentId).push(thread);
     }
 
-    return forumIndex.map(entry => ({
-        ...entry,
-        threads: threadsByForum.get(entry.forumId) ?? [],
-    }));
+    const results = [];
+
+    // レート制限を避けるため、フォーラムごとに順番に取得する
+    for (const entry of forumIndex) {
+
+        const activeThreads = threadsByForum.get(entry.forumId) ?? [];
+        const archivedThreads = await fetchArchivedThreads(entry.forum);
+
+        // アクティブ/アーカイブの切り替わり中に両方に入る場合に備えて重複除去
+        const merged = new Map();
+
+        for (const thread of [...activeThreads, ...archivedThreads]) {
+            if (!thread.locked) {
+                merged.set(thread.id, thread);
+            }
+        }
+
+        results.push({
+            ...entry,
+            threads: [...merged.values()],
+        });
+    }
+
+    return results;
 }
 
 
@@ -94,7 +153,7 @@ async function fetchForumThreads(guild, forumIndex) {
 // 一覧の行を生成
 //
 // ■ フォーラムURL
-// ├・スレッドURL（タイトル順）
+// ├・スレッド名 スレッドURL（タイトル順）
 // （フォーラム間に空行）
 // ========================================
 
@@ -117,7 +176,12 @@ function buildLines(forumResults, guild) {
         );
 
         for (const thread of sortedThreads) {
-            lines.push(`├・https://discord.com/channels/${guild.id}/${thread.id}`);
+
+            const url = `https://discord.com/channels/${guild.id}/${thread.id}`;
+
+            // アーカイブ済みスレッドはリンクが「不明」と表示されるため、
+            // 表示をそろえて全スレッドに名前を添える
+            lines.push(`├・${escapeMarkdown(thread.name)} ${url}`);
         }
 
         lines.push('');
